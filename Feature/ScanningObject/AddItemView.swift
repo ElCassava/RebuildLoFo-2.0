@@ -9,7 +9,8 @@ import SwiftData
 import UIKit
 import SwiftUI
 import Foundation
-
+import RealityKit
+import CloudKit
 
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var image: UIImage?
@@ -68,12 +69,13 @@ struct AddItemView: View {
     @State private var selectedImage: UIImage?
     @State private var showImagePicker = false
     @State private var sourceType: UIImagePickerController.SourceType = .camera
+    @State private var show3DScanner = false
+    @State private var usdzFileURL: URL? = nil
+    @State private var isUploading = false
+    @State private var uploadError: String? = nil
 
-    
-    
     let allCategories = ["Accessories", "Clothing", "Electronics", "Documents", "Miscellaneous"]
 
-    
     var body: some View {
         NavigationStack {
             Form {
@@ -93,49 +95,63 @@ struct AddItemView: View {
                 }
                 
                 Section(header: Text("Add Image")) {
-//                    VStack {
-                        if let image = selectedImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 200)
-                                .cornerRadius(10)
-                                .padding(.vertical)
-                                .onTapGesture {
-                                    showImagePicker = true
-                                }
-                        } else {
-                            Button(action: {
-                                sourceType = .camera
+                    if let image = selectedImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 200)
+                            .cornerRadius(10)
+                            .padding(.vertical)
+                            .onTapGesture {
                                 showImagePicker = true
-                            }) {
-                                Text("Take Photo")
                             }
-                            .foregroundColor(.blue)
-                            .cornerRadius(8)
-                            
-                            Button(action: {
-                                sourceType = .photoLibrary
-                                showImagePicker = true
-                            }){
-                                Text("Select from Library")
-                            }
-                            .foregroundColor(.blue)
-                            .cornerRadius(8)
-                            
-                            
+                    } else {
+                        Button(action: {
+                            sourceType = .camera
+                            showImagePicker = true
+                        }) {
+                            Text("Take Photo")
                         }
+                        .foregroundColor(.blue)
+                        .cornerRadius(8)
+                        
+                        Button(action: {
+                            sourceType = .photoLibrary
+                            showImagePicker = true
+                        }){
+                            Text("Select from Library")
+                        }
+                        .foregroundColor(.blue)
+                        .cornerRadius(8)
+                    }
                 }
                 
                 Section(header: Text("Add model")) {
-                    NavigationLink(destination:
-                            ContentView()
-
-                    ) {
-                        Text("Add Model")
+                    if ObjectCaptureSession.isSupported {
+                        Button(action: {
+                            show3DScanner = true
+                        }) {
+                            Text("Add Model")
+                        }
+                        if let url = usdzFileURL {
+                            Text("Model ready: \(url.lastPathComponent)")
+                                .font(.caption)
+                        }
+                    } else {
+                        Text("3D scanning is not supported on this device.")
+                            .foregroundColor(.gray)
+                            .font(.footnote)
                     }
-                                    }
+                }
                 
+                if isUploading {
+                    ProgressView("Uploading model to CloudKit...")
+                }
+                if let uploadError {
+                    Text("Upload error: \(uploadError)")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                }
             }
             .navigationTitle("Add Item")
             .toolbar {
@@ -143,9 +159,7 @@ struct AddItemView: View {
                     Button("Save") {
                         let imageData = selectedImage?.jpegData(compressionQuality: 0.8)
 
-                        
                         let newItem = Item(
-//                            id: UUID(),
                             dateFound: dateFound,
                             dateClaimed: Date(),
                             itemName: itemName,
@@ -156,9 +170,12 @@ struct AddItemView: View {
                             claimerName: "",
                             claimerContact: "",
                             imageData: imageData
-//                            isClaimed: false
                         )
                         modelContext.insert(newItem)
+                        
+                        if let usdzURL = usdzFileURL {
+                            uploadUSDZToCloudKit(usdzURL: usdzURL)
+                        }
                         dismiss()
                     }
                     .foregroundColor(.blue)
@@ -176,10 +193,28 @@ struct AddItemView: View {
         .fullScreenCover(isPresented: $showImagePicker) {
             ImagePicker(image: $selectedImage, sourceType: sourceType)
         }
+        .sheet(isPresented: $show3DScanner) {
+            ContentView()
+                .environment(AppDataModel.instance)
+        }
+    }
 
+    private func uploadUSDZToCloudKit(usdzURL: URL) {
+        isUploading = true
+        uploadError = nil
+        let record = CKRecord(recordType: "Model")
+        record["modelFile"] = CKAsset(fileURL: usdzURL)
+        record["itemName"] = itemName as CKRecordValue
+        record["dateFound"] = dateFound as CKRecordValue
+
+        let privateDB = CKContainer.default().privateCloudDatabase
+        privateDB.save(record) { _, error in
+            DispatchQueue.main.async {
+                self.isUploading = false
+                if let error = error {
+                    self.uploadError = error.localizedDescription
+                }
+            }
+        }
     }
 }
-
-//#Preview {
-//    AddItemView()
-//}

@@ -83,8 +83,6 @@ struct DatePickerRow: View {
     }
 }
 
-
-
 struct ItemCardDetailView: View {
     @Environment(\.dismiss) private var dismiss
     
@@ -95,8 +93,32 @@ struct ItemCardDetailView: View {
         ]
     
     @Binding public var isLoggedIn: Bool
-    
-    
+
+    // Store the selected USDZ file URL as a bookmark for persistence
+    @State private var usdzURL: URL?
+    @State private var showPicker = false
+
+    // Helper to get a unique key for the item (use a better unique id if available)
+    private var usdzBookmarkKey: String { "usdzBookmark-\(editableItem.itemName)" }
+
+    // Load the bookmark if available
+    private func loadUSDZURL() {
+        if let data = UserDefaults.standard.data(forKey: usdzBookmarkKey) {
+            var isStale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: [], bookmarkDataIsStale: &isStale), !isStale {
+                usdzURL = url
+            }
+        }
+    }
+
+    // Save the bookmark for the selected URL
+    private func saveUSDZURL(_ url: URL) {
+        if let data = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
+            UserDefaults.standard.set(data, forKey: usdzBookmarkKey)
+            usdzURL = url
+        }
+    }
+
     var body: some View {
         NavigationView{
             ScrollView{
@@ -129,22 +151,51 @@ struct ItemCardDetailView: View {
                                 .frame(width: 300, height: 300)
                                 .cornerRadius(20)
                         }
-                        
-                        VStack{
+
+                        VStack {
                             Spacer()
                             HStack {
                                 Spacer()
-                                
-                                HStack {
-                                    Spacer()
-                                    NavigationLink(destination: ModelViewerScreen()) {
-                                        Image("3DButton")
-                                            .padding(10)
+                                // Admin logic
+                                if isLoggedIn {
+                                    if let url = usdzURL {
+                                        HStack(spacing: 8) {
+                                            NavigationLink(
+                                                destination: ThreeDView(usdzURL: url),
+                                                label: {
+                                                    Image("3DButton")
+                                                        .padding(10)
+                                                }
+                                            )
+                                            Button(action: {
+                                                showPicker = true
+                                            }) {
+                                                Image(systemName: "arrow.clockwise.circle.fill")
+                                                    .font(.system(size: 25))
+                                                    .padding(10)
+                                            }
+                                        }
+                                    } else {
+                                        Button(action: {
+                                            showPicker = true
+                                        }) {
+                                            Image("3DButton")
+                                                .padding(10)
+                                        }
                                     }
-                                    
+                                } else {
+                                    // User logic
+                                    if let url = usdzURL {
+                                        NavigationLink(
+                                            destination: ThreeDView(usdzURL: url),
+                                            label: {
+                                                Image("3DButton")
+                                                    .padding(10)
+                                            }
+                                        )
+                                    }
+                                    // else: show nothing if no model
                                 }
-                                
-                                
                             }
                         }
                         .frame(width: 300, height: 300)
@@ -253,6 +304,15 @@ struct ItemCardDetailView: View {
                 .padding(.top, 20)
             }
             
+        }
+        .onAppear {
+            loadUSDZURL()
+        }
+        .sheet(isPresented: $showPicker) {
+            DocumentPickerView { url in
+                // Save bookmark and update state
+                saveUSDZURL(url)
+            }
         }
     }
     
